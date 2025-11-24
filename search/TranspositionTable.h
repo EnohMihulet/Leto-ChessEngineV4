@@ -36,6 +36,7 @@ typedef struct Entry {
 typedef struct ttLookUpData {
 	LookUpType type;
 	int16 value;
+	Move move;
 } ttLookUpData;
 
 typedef struct TranspositionTable {
@@ -69,7 +70,6 @@ typedef struct TranspositionTable {
 	}
 
 	inline void storeEntry(uint64 zobrist, Move m, uint8 pliesFromRoot, uint8 pliesRemaining, int16 alpha, int16 beta, int16 originalAlpha) {
-		// FIX: Should TTScore or alpha be used to get the node type?
 		NodeType n = getNodeType(alpha, beta, originalAlpha);
 		Entry e{zobrist, m, toTTScore(alpha, pliesFromRoot), pliesRemaining, n};
 		uint32 i = index(e.zobrist);
@@ -78,45 +78,55 @@ typedef struct TranspositionTable {
 		table[i] = e;
 	}
 
-	inline ttLookUpData lookUp(uint64 zobrist, int16 alpha, int16 beta, uint8 pliesRemaining, SearchStats& stats) {
+	inline void storeEntry(uint64 zobrist, Move m, uint8 pliesFromRoot, uint8 pliesRemaining, int16 score, NodeType n) {
+		Entry e{zobrist, m, toTTScore(score, pliesFromRoot), pliesRemaining, n};
+		uint32 i = index(e.zobrist);
+		if (table[i].zobrist != 0 && table[i].depth > e.depth)
+			return;
+		table[i] = e;
+	}
+
+	inline ttLookUpData lookUp(uint64 zobrist, int16 alpha, int16 beta, uint8 pliesFromRoot, uint8 pliesRemaining, SearchStats& stats) {
 		Entry entry = table[index(zobrist)];
 		if (zobrist == entry.zobrist && entry.score != SCORE_SENTINAL) { 
 			stats.ttHits++;
 			if (entry.depth >= pliesRemaining) {
+				int16 score = fromTTScore(entry.score, pliesFromRoot);
 				stats.ttHitsUseful++;
 				
 				if (entry.nodeType == Exact) {
 					stats.ttHitCutoffs++; 
-					return {Score, entry.score};
+					return {Score, score, entry.bestMove};
 				}
-				if (entry.nodeType == LowerBound && entry.score >= beta) {
+				if (entry.nodeType == LowerBound && score >= beta) {
 					stats.ttHitCutoffs++; 
-					return {BetaIncrease, entry.score};
+					return {BetaIncrease, score, entry.bestMove};
 				}
-				if (entry.nodeType == UpperBound && entry.score <= alpha) {
+				if (entry.nodeType == UpperBound && score <= alpha) {
 					stats.ttHitCutoffs++; 
-					return {AlphaIncrease, entry.score};
+					return {AlphaIncrease, score, entry.bestMove};
 				}
-				if (entry.nodeType == LowerBound) return {AlphaIncrease, std::max(alpha, entry.score)};
-				else if (entry.nodeType == UpperBound) return {BetaIncrease, std::min(beta, entry.score)};
+				if (entry.nodeType == LowerBound) return {AlphaIncrease, std::max(alpha, score), entry.bestMove};
+				else if (entry.nodeType == UpperBound) return {BetaIncrease, std::min(beta, score), entry.bestMove};
 			}
 		}
-		return {None, -1};
+		return {None, -1, NULL_MOVE};
 	};
 
-	inline ttLookUpData lookUp(uint64 zobrist, int16 alpha, int16 beta, uint8 pliesRemaining) {
+	inline ttLookUpData lookUp(uint64 zobrist, int16 alpha, int16 beta, uint8 pliesFromRoot, uint8 pliesRemaining) {
 		Entry entry = table[index(zobrist)];
 		if (zobrist == entry.zobrist && entry.score != SCORE_SENTINAL) { 
 			if (entry.depth >= pliesRemaining) {
-				if (entry.nodeType == Exact) return {Score, entry.score};
-				else if (entry.nodeType == LowerBound && entry.score >= beta) return {BetaIncrease, entry.score};
-				else if (entry.nodeType == UpperBound && entry.score <= alpha) return {AlphaIncrease, entry.score};
+				int16 score = fromTTScore(entry.score, pliesFromRoot);
+				if (entry.nodeType == Exact) return {Score, score, entry.bestMove};
+				else if (entry.nodeType == LowerBound && score >= beta) return {BetaIncrease, score, entry.bestMove};
+				else if (entry.nodeType == UpperBound && score <= alpha) return {AlphaIncrease, score, entry.bestMove};
 		
-				if (entry.nodeType == LowerBound) return {AlphaIncrease, std::max(alpha, entry.score)};
-				else if (entry.nodeType == UpperBound) return {BetaIncrease, std::min(beta, entry.score)};
+				if (entry.nodeType == LowerBound) return {AlphaIncrease, std::max(alpha, score), entry.bestMove};
+				else if (entry.nodeType == UpperBound) return {BetaIncrease, std::min(beta, score), entry.bestMove};
 			}
 		}
-		return { None, -1};
+		return { None, -1, NULL_MOVE};
 	};
 
 	inline Move getTTMove(uint64 zobrist) {

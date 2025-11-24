@@ -120,6 +120,8 @@ constexpr std::array<std::array<uint8, MAX_MOVE_COUNT>, MAX_PLY> generateLateMov
 
 constexpr std::array<std::array<uint8, MAX_MOVE_COUNT>, MAX_PLY> LMR_TABLE = generateLateMoveReduction();
 
+int16 quiescenceSearch(GameState& gameState, EvalState& evalState, std::vector<MoveInfo>& history, Move pvMove, int16 alpha, int16 beta, uint8 pliesFromRoot, uint8 pliesRemaining);
+
 Move iterativeDeepeningSearch(GameState& gameState, std::vector<MoveInfo>& history);
 
 // Used for GUI

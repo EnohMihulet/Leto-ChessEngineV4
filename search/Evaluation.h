@@ -28,6 +28,7 @@ constexpr int16 ROOK_SEMI_OPEN_FILE = 10;
 constexpr int16 CASTLED = 15;
 constexpr int16 STRONG_PAWN_SHIELD = 15;
 constexpr int16 MID_PAWN_SHIELD = 10;
+constexpr int16 WEAK_PAWN_SHIELD = 5;
 constexpr int16 EXPOSED_KING = -40;
 
 constexpr int16 KNIGHT_MOBILITY_BONUS = 4;
@@ -37,7 +38,7 @@ constexpr int16 QUEEN_MOBILITY_BONUS = 1;
 
 constexpr uint16 TOTAL_PHASE = 24;
 
-typedef struct EvalState {
+typedef struct EvalCore {
 	int16 mgSide[2] = {0,0};
 	int16 egSide[2] = {0,0};
 	int16 pawnStructure[2] = {0,0};
@@ -52,43 +53,39 @@ typedef struct EvalState {
 	// int16 rookMobility[2];
 	// int16 queenMobility[2];
 	int16 phase;
+} EvalCore;
+
+typedef struct EvalState {
+	EvalCore core;
 } EvalState;
 
 typedef struct EvalDelta {
-	int16 mgSide[2] = {0,0};
-	int16 egSide[2] = {0,0};
-	int16 pawnStructure[2] = {0,0};
-	int16 kingSafety[2] = {0,0};
-	int16 bishopPair[2] = {0,0};
-	int16 knightPair[2] = {0,0};
-	int16 rookPair[2] = {0,0};
-	int16 knightAdj[2] = {0,0};
-	int16 rookAdj[2] = {0,0};
-	// int16 knightMobility[2];
-	// int16 bishopMobility[2];
-	// int16 rookMobility[2];
-	// int16 queenMobility[2];
-	int16 phase;
+	EvalCore core;
 } EvalDelta;
 
 void initEval(GameState& gameState, EvalState& eval, Color color);
 
-void evaluatePawns(GameState& gameState, EvalState& eval, Color us);
-void evaluateKnights(GameState& gameState, EvalState& eval, Color us);
-void evaluateBishops(GameState& gameState, EvalState& eval, Color us);
-void evaluateRooks(GameState& gameState, EvalState& eval, Color us);
-void evaluateQueen(GameState& gameState, EvalState& eval, Color us);
-void evaluateKing(GameState& gameState, EvalState& eval, Color us);
+void evaluatePawns(GameState& gameState, EvalCore& eval, Color us);
+void evaluateKnights(GameState& gameState, EvalCore& eval, Color us);
+void evaluateBishops(GameState& gameState, EvalCore& eval, Color us);
+void evaluateRooks(GameState& gameState, EvalCore& eval, Color us);
+void evaluateQueen(GameState& gameState, EvalCore& eval, Color us);
+void evaluateKing(GameState& gameState, EvalCore& eval, Color us);
 
 void updateEval(GameState& gameState, Move move, Color us, EvalState& evalState, std::vector<EvalDelta>& evalStack);
 void applyEvalDelta(EvalState& evalState, EvalDelta& evalDelta);
 void undoEvalUpdate(EvalState& evalState, std::vector<EvalDelta>& evalStack);
 int16 getEval(EvalState& eval, Color us);
 
-void updatePawnScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updatePawnStructureScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updateKnightScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updateBishopScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updateRookScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updateQueenScore(GameState& gameState, EvalDelta& eval, Move move, Color us, bool captured=false);
-void updateKingScore(GameState& gameState, EvalDelta& eval, Move move, Color us);
+void updatePawnScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+void updateKnightScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+void updateBishopScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+void updateRookScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+void updateQueenScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+void updateKingScore(GameState& gameState, EvalCore& eval, Move move, Color us);
+
+void updatePawnStructureScore(GameState& gameState, EvalCore& eval, Move move, Color us, bool captured=false);
+
+void updateKingShieldScore(EvalCore& delta, Bitboard& allyPawns, uint8 file, int8 sign, Color us);
+void updateKingShieldKingMove(GameState& gameState, EvalCore& delta, uint8 from, uint8 to, Color us);
+void updateKingShieldPawnMove(GameState& gameState, EvalCore& delta, Move move, Color us);

@@ -70,13 +70,15 @@ int16 quiescenceSearch(GameState& gameState, EvalState& evalState, std::vector<M
 		if (bestEval > alpha) alpha = bestEval;
 	}
 
-	Entry entry = g_TranspositionTable.table[g_TranspositionTable.index(gameState.zobristHash)];
-	if (gameState.zobristHash == entry.zobrist && entry.score != SCORE_SENTINAL && entry.depth == 0) {
-		if (entry.nodeType == LowerBound && entry.score >= beta) return entry.score;
-		if (entry.nodeType == UpperBound && entry.score <= alpha) return entry.score;
-		if (entry.nodeType == LowerBound) alpha = std::max(alpha, entry.score);
-		else if (entry.nodeType == UpperBound) beta = std::min(beta, entry.score);
-	}
+	ttLookUpData ttData = g_TranspositionTable.lookUp(gameState.zobristHash, alpha, beta, pliesFromRoot, pliesRemaining);
+//	if (ttData.type == BetaIncrease) {
+//		if (ttData.value >= beta) return ttData.value;
+//		alpha = std::max(alpha, ttData.value);
+//	}
+//	else if (ttData.type == AlphaIncrease) {
+//		beta = std::min(beta, ttData.value);
+//		if (alpha >= beta) return beta;
+//	}
 
 	auto& moves = g_QuiescencePool.getMoveList(pliesFromRoot);
 	if (isCheck) generateAllMoves(gameState, moves, gameState.colorToMove);
@@ -87,7 +89,7 @@ int16 quiescenceSearch(GameState& gameState, EvalState& evalState, std::vector<M
 	if (movesSize == 0) return isCheck ? NEG_INF + pliesFromRoot : 0;
 
 	PickMoveContext pickMoveContext = {g_ScoreMovePool.getScoreList(pliesFromRoot), pvMove, 
-					   entry.bestMove, g_MoveTable.table[pliesFromRoot], 0, movesSize};
+					   ttData.move, g_MoveTable.table[pliesFromRoot], 0, movesSize};
 	scoreMoves(gameState, moves, pickMoveContext, g_HistoryTable, g_CHistoryTable, g_FHistoryTable,
 	    	   g_CounterMoveTable, g_FollowUpMoveTable, g_ContStack);
 	Move bestMoveInThisPos = moves.list[0];
@@ -108,8 +110,7 @@ int16 quiescenceSearch(GameState& gameState, EvalState& evalState, std::vector<M
 		g_ContStack.pop();
 
 		if (score >= beta) {
-			Entry e{gameState.zobristHash, move, score, 0, LowerBound};
-			g_TranspositionTable.storeEntry(e);
+			g_TranspositionTable.storeEntry(gameState.zobristHash, move, pliesFromRoot, 0, score, LowerBound);
 			return score;
 		}
 		if (score > bestEval) {
@@ -122,7 +123,7 @@ int16 quiescenceSearch(GameState& gameState, EvalState& evalState, std::vector<M
 		}
 	}
 
-	g_TranspositionTable.storeEntry(gameState.zobristHash, bestMoveInThisPos, pliesFromRoot, pliesRemaining, alpha, beta, originalAlpha);
+	g_TranspositionTable.storeEntry(gameState.zobristHash, bestMoveInThisPos, pliesFromRoot, 0, alpha, beta, originalAlpha);
 
 	return alpha;
 }
@@ -219,17 +220,6 @@ Move iterativeDeepeningSearch(GameState& gameState, std::vector<MoveInfo>& histo
 int16 alphaBetaSearch(GameState& gameState, EvalState& evalState, std::vector<MoveInfo>& history, SearchContext& context, int16 alpha, int16 beta,
 					  uint8 pliesFromRoot, uint8 pliesRemaining, SearchStats& stats, SearchTimes& times) {
 	stats.nodes++;
-	if (stats.nodes == 1000000) {
-		EvalState testEvalState{}; 
-		initEval(gameState, testEvalState, gameState.colorToMove);
-		int16 testEval = getEval(testEvalState, gameState.colorToMove);
-		int16 eval = getEval(evalState, gameState.colorToMove);
-		if (eval != testEval) {
-			std::cout << "Test: " << testEval << " IncEval: " << eval << std::endl;
-			printBoard(gameState);
-		}
-		else std::cout << "Same" << std::endl;
-	}
 	stats.plyNodes[pliesFromRoot]++;
 
 	if (pliesRemaining <= 0) {
@@ -243,18 +233,12 @@ int16 alphaBetaSearch(GameState& gameState, EvalState& evalState, std::vector<Mo
 
 	stats.ttProbes++;
 	g_StartTime = cntvct();
-	ttLookUpData ttData = g_TranspositionTable.lookUp(gameState.zobristHash, alpha, beta, pliesRemaining, stats);
+	ttLookUpData ttData = g_TranspositionTable.lookUp(gameState.zobristHash, alpha, beta, pliesFromRoot, pliesRemaining, stats);
 	times.transpositionLookUp += cntvct() - g_StartTime;
 
-	if (ttData.type == Score) return fromTTScore(ttData.value, pliesFromRoot);
-	if (ttData.type == AlphaIncrease) {
-		alpha = fromTTScore(ttData.value, pliesFromRoot);
-		if (alpha >= beta) return alpha;
-	}
-	else if (ttData.type == BetaIncrease) {
-		beta = fromTTScore(ttData.value, pliesFromRoot);
-		if (alpha >= beta) return alpha;
-	}
+	if (ttData.type == Score) return ttData.value;
+	if (ttData.type == BetaIncrease && ttData.value >= beta) return ttData.value;
+	else if (ttData.type == AlphaIncrease && ttData.value <= alpha) return alpha;
 
 	g_StartTime = cntvct();
 	auto& moves = g_MovePool.getMoveList(pliesFromRoot);
@@ -269,9 +253,8 @@ int16 alphaBetaSearch(GameState& gameState, EvalState& evalState, std::vector<Mo
 	times.gameResultCheck += cntvct() - g_StartTime;
 	if (gameResult == Draw) return 0;
 	if (gameResult == Checkmate) return NEG_INF + pliesFromRoot;
-
 	Move bestMoveInThisPos = moves.list[0];
-	Move ttMove = g_TranspositionTable.getTTMove(gameState.zobristHash);
+	Move ttMove = ttData.move;
 	MTEntry killers = g_MoveTable.table[pliesFromRoot];
 
 	int16 originalAlpha = alpha;
@@ -394,18 +377,11 @@ int16 alphaBetaSearch(GameState& gameState, EvalState& evalState, std::vector<Mo
 
 	if (context.searchCanceled) return 0;
 
-	ttLookUpData ttData = g_TranspositionTable.lookUp(gameState.zobristHash, alpha, beta, pliesRemaining);
-	if (ttData.type == Score) return fromTTScore(ttData.value, pliesFromRoot);
-	if (ttData.type == AlphaIncrease) {
-		alpha = fromTTScore(ttData.value, pliesFromRoot);
-		if (alpha >= beta) return alpha;
-	}
-	else if (ttData.type == BetaIncrease) {
-		beta = fromTTScore(ttData.value, pliesFromRoot);
-		if (alpha >= beta) return alpha;
-	}
+	ttLookUpData ttData = g_TranspositionTable.lookUp(gameState.zobristHash, alpha, beta, pliesFromRoot, pliesRemaining);
+	if (ttData.type == Score) return ttData.value;
+	if (ttData.type == BetaIncrease && ttData.value >= beta) return ttData.value;
+	else if (ttData.type == AlphaIncrease && ttData.value <= alpha) return alpha; auto& moves = g_MovePool.getMoveList(pliesFromRoot);
 
-	auto& moves = g_MovePool.getMoveList(pliesFromRoot);
 	bool isCheck;
 	generateAllMoves(gameState, moves, gameState.colorToMove, isCheck);
 	uint16 movesSize = moves.back;
@@ -416,7 +392,7 @@ int16 alphaBetaSearch(GameState& gameState, EvalState& evalState, std::vector<Mo
 	if (gameResult == Checkmate) return NEG_INF + pliesFromRoot;
 
 	Move bestMoveInThisPos = moves.list[0];
-	Move ttMove = g_TranspositionTable.getTTMove(gameState.zobristHash);
+	Move ttMove = ttData.move;
 	MTEntry killers = g_MoveTable.table[pliesFromRoot];
 	int16 originalAlpha = alpha;
 	bool fullSearched;
@@ -512,7 +488,7 @@ uint8 getLMR(Move move, uint8 depth, uint8 moveNum, bool isCheck, bool inPV, Mov
 	if (inPV && moveNum <= 2) return 0;
 	if (move.val == ttMove.val) return 0;
 	if (move.val == killers.move1.val || move.val == killers.move2.val) return 0;
-	if (histScore < MAX_HISTORY_SCORE && histScore > HIGH_HISTORY_SCORE) return 0;
+	if (histScore <= MAX_HISTORY_SCORE && histScore > HIGH_HISTORY_SCORE) return 0;
 
 	uint8 d = std::min<uint8>(depth,  MAX_PLY - 1);
 

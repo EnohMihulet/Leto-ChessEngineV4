@@ -46,8 +46,13 @@ int main() {
 	GuiState guiState;
 	guiState.history.reserve(64);
 	guiState.movesMade.reserve(64);
-	initEval(gameState, guiState.eval, gameState.colorToMove);
+	initEval(gameState, guiState.staticState, gameState.colorToMove);
+	initEval(gameState, guiState.increState, gameState.colorToMove);
 	
+	char fenBuf[256];
+	memset(fenBuf, 0, 256);
+	for (uint16 i = 0; i < DEFAULT_FEN_POSITION.length(); i++) fenBuf[i] = DEFAULT_FEN_POSITION[i];
+
 	generateAllMoves(gameState, guiState.allMoves, gameState.colorToMove, guiState.checkMask, guiState.pinnedPieces, guiState.pinnedRays);
 
 	bool running = true;
@@ -63,7 +68,7 @@ int main() {
 		ImGui_ImplSDLRenderer2_NewFrame();
 		ImGui::NewFrame();
 		
-		drawFenString(gameState);
+		drawFenString(gameState, guiState, fenBuf);
 
 		drawBoard(gameState, guiState);
 		

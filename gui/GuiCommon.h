@@ -6,8 +6,14 @@
 #include "../external/imgui/imgui.h"
 #include "Move.h"
 
-constexpr uint32 WINDOW_WIDTH = 1920;
-constexpr uint32 WINDOW_HEIGHT = 1080;
+constexpr uint32 WINDOW_WIDTH = 1512;
+constexpr uint32 WINDOW_HEIGHT = 982;
+
+constexpr float SQUARE_SIZE = 60.0f;
+constexpr int16 COL_COUNT = 8;
+constexpr int16 RANK_COUNT = 8;
+constexpr int16 BOARD_HEIGHT = RANK_COUNT * SQUARE_SIZE;
+
 
 static const ImU32 DARK_SQUARE_COLOR = IM_COL32(25, 110, 70, 255);
 static const ImU32 LIGHT_SQUARE_COLOR = IM_COL32(220, 180, 140, 255);
@@ -26,7 +32,10 @@ typedef struct GuiState {
 	std::vector<MoveInfo> history;
 	std::vector<Move> movesMade;
 	std::vector<EvalDelta> evalStack;
-	EvalState eval;
+	EvalState staticState;
+	EvalState increState;
+	int32 staticEval;
+	int32 increEval;
 	MoveList allMoves;
 	MoveList selectedPieceMoves;
 	Bitboard checkMask; 

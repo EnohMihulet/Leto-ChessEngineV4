@@ -20,7 +20,7 @@ int main() {
 	std::vector<MoveInfo> history;
 	history.reserve(256);
 
-	iterativeDeepeningSearch(gameState, history);
+	// iterativeDeepeningSearch(gameState, history);
 
 	std::string command;
 	while (std::getline(std::cin, command)) {

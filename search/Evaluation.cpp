@@ -18,17 +18,17 @@ int16 calculateMgWeight(const GameState& gameState) {
 }
 
 void initEval(GameState& gameState, EvalState& eval, Color us) {
-	eval.phase = calculateMgWeight(gameState);
+	eval.core.phase = calculateMgWeight(gameState);
 
-	evaluatePawns(gameState, eval, us);
-	evaluateKnights(gameState, eval, us);
-	evaluateBishops(gameState, eval, us);
-	evaluateRooks(gameState, eval, us);
-	evaluateQueen(gameState, eval, us);
-	evaluateKing(gameState, eval, us);
+	evaluatePawns(gameState, eval.core, us);
+	evaluateKnights(gameState, eval.core, us);
+	evaluateBishops(gameState, eval.core, us);
+	evaluateRooks(gameState, eval.core, us);
+	evaluateQueen(gameState, eval.core, us);
+	evaluateKing(gameState, eval.core, us);
 }
 
-void evaluatePawns(GameState& gameState, EvalState& eval, Color us) {
+void evaluatePawns(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyPawns = gameState.bitboards[us == White ? WPawn : BPawn];
@@ -62,7 +62,7 @@ void evaluatePawns(GameState& gameState, EvalState& eval, Color us) {
 	return;
 }
 
-void evaluateKnights(GameState& gameState, EvalState& eval, Color us) {
+void evaluateKnights(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyKnights = gameState.bitboards[us == White ? WKnight : BKnight];
@@ -106,7 +106,7 @@ void evaluateKnights(GameState& gameState, EvalState& eval, Color us) {
 	return;
 }
 
-void evaluateBishops(GameState& gameState, EvalState& eval, Color us) {
+void evaluateBishops(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyBishops = gameState.bitboards[us == White ? WBishop : BBishop];
@@ -141,7 +141,7 @@ void evaluateBishops(GameState& gameState, EvalState& eval, Color us) {
 	return;
 }
 
-void evaluateRooks(GameState& gameState, EvalState& eval, Color us) {
+void evaluateRooks(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyRooks = gameState.bitboards[us == White ? WRook : BRook];
@@ -184,7 +184,7 @@ void evaluateRooks(GameState& gameState, EvalState& eval, Color us) {
 	return;
 }
 
-void evaluateQueen(GameState& gameState, EvalState& eval, Color us) {
+void evaluateQueen(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyQueens = gameState.bitboards[us == White ? WQueen : BQueen];
@@ -216,28 +216,59 @@ void evaluateQueen(GameState& gameState, EvalState& eval, Color us) {
 	return;
 }
 
-void evaluateKing(GameState& gameState, EvalState& eval, Color us) {
+void evaluateKing(GameState& gameState, EvalCore& eval, Color us) {
 	Color them = us == White ? Black : White;
 
 	Bitboard allyKing = gameState.bitboards[us == White ? WKing : BKing];
 	Bitboard enemyKing = gameState.bitboards[us == White ? BKing : WKing];
+	Bitboard allyPawns, enemyPawns;
 	assert(allyKing);
 	assert(enemyKing);
 
+	// Ally
 	uint8 sq = __builtin_ctzll(allyKing);
-	sq = us == White ? sq : sq ^ 56;
+	int8 rank = sq / 8;
+	int8 file = sq & 7;
+	bool checkPawnShield = false;
+
+	if (us == White) {
+		allyPawns = gameState.bitboards[WPawn];
+		enemyPawns = gameState.bitboards[BPawn];
+		checkPawnShield = rank < 2 && (file < 3 || file > 4);
+	}
+	else {
+		sq ^= 56;
+		allyPawns = gameState.bitboards[BPawn];
+		enemyPawns = gameState.bitboards[WPawn];
+		checkPawnShield = rank > 5 && (file < 3 || file > 4);
+	}
+
 	eval.mgSide[us] += MG_PSQT[WKing][sq];
 	eval.egSide[us] += EG_PSQT[WKing][sq];
 	eval.mgSide[us] += MG_PIECE_VALUES[WKing];
 	eval.egSide[us] += EG_PIECE_VALUES[WKing];
 
+	if (checkPawnShield) updateKingShieldScore(eval, allyPawns, file, 1, us);
+
+	// Enemy
 	sq = __builtin_ctzll(enemyKing);
-	sq = them == White ? sq : sq ^ 56;
+	rank = sq / 8;
+	file = sq & 7;
+	checkPawnShield = false;
+	if (them == White) checkPawnShield = rank < 2 && (file < 3 || file > 4);
+	else {
+		sq ^= 56;
+		checkPawnShield = rank > 5 && (file < 3 || file > 4);
+	}
+
 	eval.mgSide[them] += MG_PSQT[WKing][sq];
 	eval.egSide[them] += EG_PSQT[WKing][sq];
 	eval.mgSide[them] += MG_PIECE_VALUES[WKing];
 	eval.egSide[them] += EG_PIECE_VALUES[WKing];
 
+	if (checkPawnShield) updateKingShieldScore(eval, enemyPawns, file, 1, them);
+
+	
 	return;
 }
 
@@ -248,45 +279,45 @@ void updateEval(GameState& gameState, Move move, Color us, EvalState& eval, std:
 
 	switch (moved) {
 		case WPawn: case BPawn:
-			updatePawnScore(gameState, delta, move, us);
+			updatePawnScore(gameState, delta.core, move, us);
 			break;
 		case WKnight: case BKnight:
-			updateKnightScore(gameState, delta, move, us);
+			updateKnightScore(gameState, delta.core, move, us);
 			break;
 		case WBishop: case BBishop:
-			updateBishopScore(gameState, delta, move, us);
+			updateBishopScore(gameState, delta.core, move, us);
 			break;
 		case WRook: case BRook:
-			updateRookScore(gameState, delta, move, us);
+			updateRookScore(gameState, delta.core, move, us);
 			break;
 		case WQueen: case BQueen:
-			updateQueenScore(gameState, delta, move, us);
+			updateQueenScore(gameState, delta.core, move, us);
 			break;
 		case WKing: case BKing:
-			updateKingScore(gameState, delta, move, us);
+			updateKingScore(gameState, delta.core, move, us);
 			break;
 		default: break;
 	}
 
 	switch (capture) {
 		case WPawn: case BPawn:
-			updatePawnScore(gameState, delta, move, us, true);
+			updatePawnScore(gameState, delta.core, move, us, true);
 			break;
 		case WKnight: case BKnight:
-			delta.phase -= MG_WEIGHT_TABLE[capture];
-			updateKnightScore(gameState, delta, move, us, true);
+			delta.core.phase -= MG_WEIGHT_TABLE[capture];
+			updateKnightScore(gameState, delta.core, move, us, true);
 			break;
 		case WBishop: case BBishop:
-			delta.phase -= MG_WEIGHT_TABLE[capture];
-			updateBishopScore(gameState, delta, move, us, true);
+			delta.core.phase -= MG_WEIGHT_TABLE[capture];
+			updateBishopScore(gameState, delta.core, move, us, true);
 			break;
 		case WRook: case BRook:
-			delta.phase -= MG_WEIGHT_TABLE[capture];
-			updateRookScore(gameState, delta, move, us, true);
+			delta.core.phase -= MG_WEIGHT_TABLE[capture];
+			updateRookScore(gameState, delta.core, move, us, true);
 			break;
 		case WQueen: case BQueen:
-			delta.phase -= MG_WEIGHT_TABLE[capture];
-			updateQueenScore(gameState, delta, move, us, true);
+			delta.core.phase -= MG_WEIGHT_TABLE[capture];
+			updateQueenScore(gameState, delta.core, move, us, true);
 			break;
 		default: break;
 	}
@@ -296,49 +327,49 @@ void updateEval(GameState& gameState, Move move, Color us, EvalState& eval, std:
 }
 
 void applyEvalDelta(EvalState& evalState, EvalDelta& evalDelta) {
-	evalState.phase += evalDelta.phase;
+	evalState.core.phase += evalDelta.core.phase;
 	for (uint8 c = 0; c < 2; c++) {
-		evalState.mgSide[c] += evalDelta.mgSide[c];
-		evalState.egSide[c] += evalDelta.egSide[c];
-		evalState.bishopPair[c] += evalDelta.bishopPair[c];
-		evalState.knightPair[c] += evalDelta.knightPair[c];
-		evalState.rookPair[c] += evalDelta.rookPair[c];
-		evalState.kingSafety[c] += evalDelta.kingSafety[c];
-		evalState.pawnStructure[c] += evalDelta.pawnStructure[c];
-		evalState.knightAdj[c] += evalDelta.knightAdj[c];
-		evalState.rookAdj[c] += evalDelta.rookAdj[c];
+		evalState.core.mgSide[c] += evalDelta.core.mgSide[c];
+		evalState.core.egSide[c] += evalDelta.core.egSide[c];
+		evalState.core.bishopPair[c] += evalDelta.core.bishopPair[c];
+		evalState.core.knightPair[c] += evalDelta.core.knightPair[c];
+		evalState.core.rookPair[c] += evalDelta.core.rookPair[c];
+		evalState.core.kingSafety[c] += evalDelta.core.kingSafety[c];
+		evalState.core.pawnStructure[c] += evalDelta.core.pawnStructure[c];
+		evalState.core.knightAdj[c] += evalDelta.core.knightAdj[c];
+		evalState.core.rookAdj[c] += evalDelta.core.rookAdj[c];
 	}
 }
 
 void undoEvalUpdate(EvalState& evalState, std::vector<EvalDelta>& evalStack) {
 	EvalDelta evalDelta = evalStack.back();
 	evalStack.pop_back();
-	evalState.phase -= evalDelta.phase;
+	evalState.core.phase -= evalDelta.core.phase;
 	for (uint8 c = 0; c < 2; c++) {
-		evalState.mgSide[c] -= evalDelta.mgSide[c];
-		evalState.egSide[c] -= evalDelta.egSide[c];
-		evalState.bishopPair[c] -= evalDelta.bishopPair[c];
-		evalState.knightPair[c] -= evalDelta.knightPair[c];
-		evalState.rookPair[c] -= evalDelta.rookPair[c];
-		evalState.kingSafety[c] -= evalDelta.kingSafety[c];
-		evalState.pawnStructure[c] -= evalDelta.pawnStructure[c];
-		evalState.knightAdj[c] -= evalDelta.knightAdj[c];
-		evalState.rookAdj[c] -= evalDelta.rookAdj[c];
+		evalState.core.mgSide[c] -= evalDelta.core.mgSide[c];
+		evalState.core.egSide[c] -= evalDelta.core.egSide[c];
+		evalState.core.bishopPair[c] -= evalDelta.core.bishopPair[c];
+		evalState.core.knightPair[c] -= evalDelta.core.knightPair[c];
+		evalState.core.rookPair[c] -= evalDelta.core.rookPair[c];
+		evalState.core.kingSafety[c] -= evalDelta.core.kingSafety[c];
+		evalState.core.pawnStructure[c] -= evalDelta.core.pawnStructure[c];
+		evalState.core.knightAdj[c] -= evalDelta.core.knightAdj[c];
+		evalState.core.rookAdj[c] -= evalDelta.core.rookAdj[c];
 	}
 }
 
 int16 getEval(EvalState& eval, Color us) {
 	Color them = us == White ? Black : White;
-	int16 mgPhase = std::min((int16)TOTAL_PHASE, eval.phase);
+	int16 mgPhase = std::min((int16)TOTAL_PHASE, eval.core.phase);
 	int16 egPhase = TOTAL_PHASE - mgPhase;
-	int16 score = (mgPhase * (eval.mgSide[us] - eval.mgSide[them]) + egPhase * (eval.egSide[us] - eval.egSide[them])) / TOTAL_PHASE;
-	score += eval.bishopPair[us] - eval.bishopPair[them] + eval.knightPair[us] - eval.knightPair[them] + eval.rookPair[us] - eval.rookPair[them];
-	score += (eval.pawnStructure[us] - eval.pawnStructure[them]) + (eval.kingSafety[us] - eval.kingSafety[them]);
-	score += (eval.knightAdj[us] - eval.knightAdj[them]) + (eval.rookAdj[us] - eval.rookAdj[them]);
+	int16 score = (mgPhase * (eval.core.mgSide[us] - eval.core.mgSide[them]) + egPhase * (eval.core.egSide[us] - eval.core.egSide[them])) / TOTAL_PHASE;
+	score += eval.core.bishopPair[us] - eval.core.bishopPair[them] + eval.core.knightPair[us] - eval.core.knightPair[them] + eval.core.rookPair[us] - eval.core.rookPair[them];
+	score += (eval.core.pawnStructure[us] - eval.core.pawnStructure[them]) + (eval.core.kingSafety[us] - eval.core.kingSafety[them]);
+	score += (eval.core.knightAdj[us] - eval.core.knightAdj[them]) + (eval.core.rookAdj[us] - eval.core.rookAdj[them]);
 	return score;
 }
 
-void updatePawnScore(GameState& gameState, EvalDelta& delta, Move move, Color us, bool captured) {
+void updatePawnScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
 	uint8 to = move.getTargetSquare();
@@ -414,12 +445,13 @@ void updatePawnScore(GameState& gameState, EvalDelta& delta, Move move, Color us
 		delta.egSide[us] += EG_PSQT[WPawn][us == White ? to : to ^ 56] - EG_PSQT[WPawn][us == White ? from : from ^ 56];
 	}
 
+	updateKingShieldPawnMove(gameState, delta, move, us);
 //	updatePawnStructureScore(gameState, delta, move);
 
 	return;
 }
 
-void updatePawnStructureScore(GameState& gameState, EvalDelta &delta, Move move, Color us, bool captured) {
+void updatePawnStructureScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	// TODO: Incrementally update structure score
 	Bitboard wPawns = gameState.bitboards[WPawn];
 	Bitboard bPawns = gameState.bitboards[BPawn];
@@ -483,9 +515,11 @@ void updatePawnStructureScore(GameState& gameState, EvalDelta &delta, Move move,
 
 		bb &= bb - 1;
 	}
+	
+
 }
 
-void updateKnightScore(GameState& gameState, EvalDelta& delta, Move move, Color us, bool captured) {
+void updateKnightScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
 	uint8 to = move.getTargetSquare();
@@ -509,7 +543,7 @@ void updateKnightScore(GameState& gameState, EvalDelta& delta, Move move, Color 
 	}
 }
 
-void updateBishopScore(GameState& gameState, EvalDelta& delta, Move move, Color us, bool captured) {
+void updateBishopScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
 	uint8 to = move.getTargetSquare();
@@ -530,7 +564,7 @@ void updateBishopScore(GameState& gameState, EvalDelta& delta, Move move, Color 
 	}
 }
 
-void updateRookScore(GameState& gameState, EvalDelta& delta, Move move, Color us, bool captured) {
+void updateRookScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	// TODO: Open file bonus (on pawn capture or rook move update)
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
@@ -555,7 +589,7 @@ void updateRookScore(GameState& gameState, EvalDelta& delta, Move move, Color us
 	}
 }
 
-void updateQueenScore(GameState& gameState, EvalDelta& delta, Move move, Color us, bool captured) {
+void updateQueenScore(GameState& gameState, EvalCore& delta, Move move, Color us, bool captured) {
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
 	uint8 to = move.getTargetSquare();
@@ -572,7 +606,7 @@ void updateQueenScore(GameState& gameState, EvalDelta& delta, Move move, Color u
 	}
 }
 
-void updateKingScore(GameState& gameState, EvalDelta& delta, Move move, Color us) {
+void updateKingScore(GameState& gameState, EvalCore& delta, Move move, Color us) {
 	// TODO: Pawn shield, king safety, castling bonus?
 	Color them = us == White ? Black : White;
 	uint8 from = move.getStartSquare();
@@ -583,9 +617,112 @@ void updateKingScore(GameState& gameState, EvalDelta& delta, Move move, Color us
 	if (move.isKingSideCastle()) {
 		delta.mgSide[us] += MG_PSQT[WRook][5] - MG_PSQT[WRook][7];
 		delta.egSide[us] += EG_PSQT[WRook][5] - EG_PSQT[WRook][7];
+		// delta.kingSafety[us] += CASTLED; NOTE: No way of doing this for static evaluation so it is left out for now
 	}
 	else if (move.isQueenSideCastle()) {
 		delta.mgSide[us] += MG_PSQT[WRook][3] - MG_PSQT[WRook][0];
 		delta.egSide[us] += EG_PSQT[WRook][3] - EG_PSQT[WRook][0];
+		// delta.kingSafety[us] += CASTLED;
+	}
+	
+	updateKingShieldKingMove(gameState, delta, from, to, us);
+}
+
+void updateKingShieldScore(EvalCore& core, Bitboard& allyPawns, uint8 file, int8 sign, Color us) {
+	uint8 pawnRank1, pawnRank2;
+
+	if (us == White)  {
+		pawnRank1 = 1;
+		pawnRank2 = 2;
+	}
+	else {
+		pawnRank1 = 6;
+		pawnRank2 = 5;
+	}
+
+	Bitboard strongShieldPawns = allyPawns & RANKS[pawnRank1];
+	Bitboard midShieldPawns = allyPawns & RANKS[pawnRank2];
+
+	core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file]);
+	core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file]);
+
+	switch (file) {
+	case 0:
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file+1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file+1]);
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file+2]); // NOTE: Should pawn shield include these?
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file+2]);
+		break;
+	case 1: case 6:
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file+1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file+1]);
+		break;
+	case 2:
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file+1]);
+		core.kingSafety[us] += sign * WEAK_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file+1]);
+
+		break;
+	case 5:
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * WEAK_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file+1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file+1]);
+		break;
+	case 7:
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file-1]);
+		core.kingSafety[us] += sign * STRONG_PAWN_SHIELD * __builtin_popcountll(strongShieldPawns & FILES[file-2]); // NOTE: Should pawn shield include these?
+		core.kingSafety[us] += sign * MID_PAWN_SHIELD * __builtin_popcountll(midShieldPawns & FILES[file-2]);
+		break;
 	}
 }
+
+void updateKingShieldKingMove(GameState& gameState, EvalCore& delta, uint8 from, uint8 to, Color us) {
+	Bitboard allyPawns;
+	uint8 kingSq;
+
+	for (uint8 i = 0; i < 2; i++) {
+		kingSq = i==0 ? from : to;
+		uint8 file = kingSq & 7;
+		uint8 rank = kingSq / 8;
+		int8 sign = i == 0 ? -1 : 1;
+		bool checkPawnShield = false;
+	
+		if (us == White) {
+			allyPawns = gameState.bitboards[WPawn];
+			checkPawnShield = rank < 2 && (file < 3 || file > 4);
+		}
+		else {
+			allyPawns = gameState.bitboards[BPawn];
+			checkPawnShield = rank > 5 && (file < 3 || file > 4);
+		}
+	
+		if (checkPawnShield) updateKingShieldScore(delta, allyPawns, file, sign, us);
+	}
+}
+
+void updateKingShieldPawnMove(GameState& gameState, EvalCore& delta, Move move, Color us) {
+	uint8 kingSq = __builtin_ctzll(gameState.bitboards[us == White ? WKing : BKing]);
+	
+	uint8 file = kingSq & 7;
+	uint8 rank = kingSq / 8;
+	Piece captured = EMPTY;
+	
+	for (uint8 i = 0; i < 2; i++) {
+		if (i == 1) captured = gameState.tempMakeMove(move);
+		int8 sign = i == 0 ? -1 : 1;
+
+		Bitboard allyPawns = gameState.bitboards[us == White ? WPawn : BPawn];
+		bool checkPawnShield = false;
+		checkPawnShield = us == White ? rank < 2 && (file < 3 || file > 4) : rank > 5 && (file < 3 || file > 4);
+	
+		if (checkPawnShield) updateKingShieldScore(delta, allyPawns, file, sign, us);
+	}
+
+	gameState.tempUnmakeMove(move, captured);
+}
+
